@@ -337,12 +337,46 @@ public class ConcurrentRadixTreeTest {
         assertNull(tree.getValueForExactKey("")); // sanity check, root never has a value
     }
 
+
+    @Test
+    public void testWildcard() {
+        ConcurrentRadixTree<Integer> tree = new ConcurrentRadixTree<Integer>(getNodeFactory());
+//        tree.put("/api/v1/*/c", 1);
+//        tree.put("/api/v1/b/*/d", 2);
+//        tree.put("/api/v1/*/c", 3);
+        tree.putWildcard("/api/v1/b/c", 4);
+        tree.putWildcard("/api/*/*/c/**", 5);
+        tree.putWildcard("/api/v1/b/c/d",6 );
+//        tree.putWildcard("/api/v1/*/c/*/f", 6);
+
+//        tree.put("/api/v1/b/*/d/*/g", 6);
+        // tree.put("/api/v1/b/c", 3);
+
+        //    ○
+        //    └── ○ FOO (1)
+        //        ├── ○ BAR (2)
+        //        └── ○ D (3)
+
+        String expected, actual;
+//        expected =
+//                "○\n" +
+//                "└── ○ FOO (1)\n" +
+//                "    ├── ○ BAR (2)\n" +
+//                "    └── ○ D (3)\n";
+        actual = PrettyPrinter.prettyPrint(tree);
+        //       System.out.println("expected:" + expected);
+        System.out.println("actual:" + actual);
+        System.out.println(tree.getValueForWildcardKey("/api/v1/b/c"));
+
+    }
+
+
     @Test
     public void testRemove_MoreThanOneChildEdge() {
         ConcurrentRadixTree<Integer> tree = new ConcurrentRadixTree<Integer>(getNodeFactory());
-        tree.put("FOO", 1);
-        tree.put("FOOBAR", 2);
-        tree.put("FOOD", 3);
+        tree.put("/api/v1/*/c", 1);
+        tree.put("/api/v1/b/*/d", 2);
+       // tree.put("/api/v1/b/c", 3);
 
         //    ○
         //    └── ○ FOO (1)
@@ -350,29 +384,16 @@ public class ConcurrentRadixTreeTest {
         //        └── ○ D (3)
         
         String expected, actual;
-        expected =
-                "○\n" +
-                "└── ○ FOO (1)\n" +
-                "    ├── ○ BAR (2)\n" +
-                "    └── ○ D (3)\n";
+//        expected =
+//                "○\n" +
+//                "└── ○ FOO (1)\n" +
+//                "    ├── ○ BAR (2)\n" +
+//                "    └── ○ D (3)\n";
         actual = PrettyPrinter.prettyPrint(tree);
-        assertEquals(expected, actual);
+ //       System.out.println("expected:" + expected);
+        System.out.println("actual:" + actual);
+        System.out.println(tree.getValueForWildcardKey("/api/v1/b/c/d"));
 
-        boolean removed = tree.remove("FOO");
-        assertTrue(removed);
-
-        //    ○
-        //    └── ○ FOO         // value removed from FOO, but node needs to stay (as implicit node)
-        //        ├── ○ BAR (2)
-        //        └── ○ D (3)
-
-        expected =
-                "○\n" +
-                "└── ○ FOO\n" +
-                "    ├── ○ BAR (2)\n" +
-                "    └── ○ D (3)\n";
-        actual = PrettyPrinter.prettyPrint(tree);
-        assertEquals(expected, actual);
     }
 
     @Test

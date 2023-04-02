@@ -43,6 +43,18 @@ public interface RadixTree<O> {
     O put(CharSequence key, O value);
 
     /**
+     * Associates the given value with the given key; replacing any previous value associated with the key.
+     * Returns the previous value associated with the key, if any.
+     * <p/>
+     * This operation is performed atomically.
+     *
+     * @param key The key with which the specified value should be associated
+     * @param value The value to associate with the key, which cannot be null
+     * @return The previous value associated with the key, if there was one, otherwise null
+     */
+    O putWildcard(CharSequence key, O value);
+
+    /**
      * If a value is not already associated with the given key in the tree, associates the given value with the
      * key; otherwise if an existing value is already associated, returns the existing value and does not overwrite it.
      * <p/>
@@ -73,6 +85,16 @@ public interface RadixTree<O> {
      * @return The value associated with the given key (exact match), or null if no value was associated with the key
      */
     O getValueForExactKey(CharSequence key);
+
+
+    /**
+     * Returns the value associated with the given key (exact match), or returns null if no such value
+     * is associated with the key.
+     *
+     * @param key The key with which a sought value might be associated
+     * @return The value associated with the given key (exact match), or null if no value was associated with the key
+     */
+    O getValueForWildcardKey(CharSequence key);
 
     /**
      * Returns a lazy iterable which returns the set of keys in the tree which start with the given prefix.

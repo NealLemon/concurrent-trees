@@ -151,4 +151,5 @@ public interface Node extends NodeCharacterProvider, Serializable {
      * @return A read-only list of the child nodes to which this node has outgoing edges
      */
     List<Node> getOutgoingEdges();
+
 }

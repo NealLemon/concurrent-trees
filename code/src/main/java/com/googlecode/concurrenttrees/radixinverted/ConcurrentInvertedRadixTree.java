@@ -185,6 +185,11 @@ public class ConcurrentInvertedRadixTree<O> implements InvertedRadixTree<O>, Pre
         return radixTree.put(key, value);
     }
 
+    @Override
+    public O putWildcard(CharSequence key, O value) {
+        return radixTree.putWildcard(key,value);
+    }
+
     /**
      * {@inheritDoc}
      */
@@ -207,6 +212,11 @@ public class ConcurrentInvertedRadixTree<O> implements InvertedRadixTree<O>, Pre
     @Override
     public O getValueForExactKey(CharSequence key) {
         return radixTree.getValueForExactKey(key);
+    }
+
+    @Override
+    public O getValueForWildcardKey(CharSequence key) {
+        return radixTree.getValueForWildcardKey(key);
     }
 
     /**

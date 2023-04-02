@@ -15,17 +15,26 @@
  */
 package com.googlecode.concurrenttrees.radix;
 
+import java.io.Serializable;
+import java.sql.ResultSet;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
 import com.googlecode.concurrenttrees.common.CharSequences;
 import com.googlecode.concurrenttrees.common.KeyValuePair;
 import com.googlecode.concurrenttrees.common.LazyIterator;
 import com.googlecode.concurrenttrees.radix.node.Node;
 import com.googlecode.concurrenttrees.radix.node.NodeFactory;
 import com.googlecode.concurrenttrees.radix.node.util.PrettyPrintable;
-
-import java.io.Serializable;
-import java.util.*;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 import static com.googlecode.concurrenttrees.radix.ConcurrentRadixTree.SearchResult.Classification;
 
@@ -40,7 +49,7 @@ import static com.googlecode.concurrenttrees.radix.ConcurrentRadixTree.SearchRes
  * @author Niall Gallagher
  */
 public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Serializable {
-    
+
     private final NodeFactory nodeFactory;
 
     protected volatile Node root;
@@ -48,9 +57,18 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
     // Write operations acquire write lock, read operations are lock-free.
     private final Lock writeLock = new ReentrantLock();
 
+    private static final CharSequence WILDCARD_SEPARATOR = "*/";
+
+    private static final CharSequence PATH_SEQUENCE = "/**";
+
+    private static final CharSequence WILDCARD_END = "**";
+    private static final char PATH_SEPARATOR = '/';
+
+    private static final char WILDCARD_CHAR = '*';
+
     /**
      * Creates a new {@link ConcurrentRadixTree} which will use the given {@link NodeFactory} to create nodes.
-     * 
+     *
      * @param nodeFactory An object which creates {@link Node} objects on-demand, and which might return node 
      * implementations optimized for storing the values supplied to it for the creation of each node
      */
@@ -85,6 +103,19 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
     }
 
     /**
+     * Neal
+     * @param key The key with which the specified value should be associated
+     * @param value The value to associate with the key, which cannot be null
+     * @return
+     */
+    @Override
+    public O putWildcard(CharSequence key, O value) {
+        @SuppressWarnings({"unchecked", "UnnecessaryLocalVariable"})
+        O existingValue = (O) putInternalWithWildcard(key, value, true);  // putInternal acquires write lock
+        return existingValue;
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override
@@ -100,13 +131,76 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
     @Override
     public O getValueForExactKey(CharSequence key) {
         SearchResult searchResult = searchTree(key);
-        if (searchResult.classification.equals(SearchResult.Classification.EXACT_MATCH)) {
+        if (searchResult.classification.equals(Classification.EXACT_MATCH)) {
             @SuppressWarnings({"unchecked", "UnnecessaryLocalVariable"})
             O value = (O) searchResult.nodeFound.getValue();
             return value;
         }
         return null;
     }
+
+    @Override
+    public O getValueForWildcardKey(CharSequence key) {
+        SearchResult searchResult = searchTreeWithWildcard(key);
+        if (searchResult.classification.equals(Classification.EXACT_MATCH)) {
+            @SuppressWarnings({"unchecked", "UnnecessaryLocalVariable"})
+            O value = (O) searchResult.nodeFound.getValue();
+            return value;
+        }
+        return null;
+    }
+
+    private SearchResult searchTreeWithWildcard(CharSequence key) {
+        Node parentNodesParent = null;
+        Node parentNode = null;
+        Node currentNode = root;
+        int charsMatched = 0, charsMatchedInNodeFound = 0;
+
+        final int keyLength = key.length();
+        outer_loop:
+        while (charsMatched < keyLength) {
+            Node nextNode = currentNode.getOutgoingEdge(WILDCARD_CHAR);
+            if (nextNode == null) {
+                nextNode = currentNode.getOutgoingEdge(key.charAt(charsMatched));
+                if (nextNode == null) {
+                    break;
+                }
+            }
+
+            parentNodesParent = parentNode;
+            parentNode = currentNode;
+            currentNode = nextNode;
+            charsMatchedInNodeFound = 0;
+            CharSequence currentNodeEdgeCharacters = currentNode.getIncomingEdge();
+            for (int i = 0, numEdgeChars = currentNodeEdgeCharacters.length(); i < numEdgeChars && charsMatched < keyLength; i++) {
+                if (currentNodeEdgeCharacters.charAt(i) != key.charAt(charsMatched)) {
+                    // Found a difference in chars between character in key and a character in current node.
+                    // Current node is the deepest match (inexact match)....
+                    if (currentNodeEdgeCharacters.charAt(i) == WILDCARD_CHAR) {
+                        int wildcardCharMatched = charsMatched;
+                        char currentChar = currentNodeEdgeCharacters.charAt(i + 1);
+                        while (wildcardCharMatched < keyLength) {
+                            if (key.charAt(wildcardCharMatched) != currentChar) {
+                                wildcardCharMatched++;
+                                continue;
+                            }
+                            break;
+                        }
+                        if (wildcardCharMatched != charsMatched) {
+                            charsMatched = wildcardCharMatched;
+                            charsMatchedInNodeFound++;
+                            continue;
+                        }
+                    }
+                    break outer_loop;
+                }
+                charsMatched++;
+                charsMatchedInNodeFound++;
+            }
+        }
+        return new SearchResult(key, currentNode, charsMatched, charsMatchedInNodeFound, parentNode, parentNodesParent);
+    }
+
 
     /**
      * {@inheritDoc}
@@ -116,7 +210,7 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
         SearchResult searchResult = searchTree(prefix);
         Classification classification = searchResult.classification;
         switch (classification) {
-            case EXACT_MATCH: {
+        case EXACT_MATCH: {
                 return getDescendantKeys(prefix, searchResult.nodeFound);
             }
             case KEY_ENDS_MID_EDGE: {
@@ -197,7 +291,7 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
         acquireWriteLock();
         try {
             SearchResult searchResult = searchTree(key);
-            SearchResult.Classification classification = searchResult.classification;
+            Classification classification = searchResult.classification;
             switch (classification) {
                 case EXACT_MATCH: {
                     if (searchResult.nodeFound.getValue() == null) {
@@ -454,7 +548,7 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
         try {
             // Note we search the tree here after we have acquired the write lock...
             SearchResult searchResult = searchTree(key);
-            SearchResult.Classification classification = searchResult.classification;
+            Classification classification = searchResult.classification;
 
             switch (classification) {
                 case EXACT_MATCH: {
@@ -538,13 +632,11 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
                     CharSequence commonPrefix = CharSequences.getCommonPrefix(keyCharsFromStartOfNodeFound, searchResult.nodeFound.getIncomingEdge());
                     CharSequence suffixFromExistingEdge = CharSequences.subtractPrefix(searchResult.nodeFound.getIncomingEdge(), commonPrefix);
                     CharSequence suffixFromKey = key.subSequence(searchResult.charsMatched, key.length());
-
                     // Create new nodes...
                     Node n1 = nodeFactory.createNode(suffixFromKey, value, Collections.<Node>emptyList(), false);
                     Node n2 = nodeFactory.createNode(suffixFromExistingEdge, searchResult.nodeFound.getValue(), searchResult.nodeFound.getOutgoingEdges(), false);
                     @SuppressWarnings({"NullableProblems"})
                     Node n3 = nodeFactory.createNode(commonPrefix, null, Arrays.asList(n1, n2), false);
-
                     searchResult.parentNode.updateOutgoingEdge(n3);
 
                     // Return null for the existing value...
@@ -560,6 +652,260 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
             releaseWriteLock();
         }
     }
+
+
+    Object putInternalWithWildcard(CharSequence key, Object value, boolean overwrite) {
+        if (key == null) {
+            throw new IllegalArgumentException("The key argument was null");
+        }
+        if (key.length() == 0) {
+            throw new IllegalArgumentException("The key argument was zero-length");
+        }
+        if (value == null) {
+            throw new IllegalArgumentException("The value argument was null");
+        }
+        acquireWriteLock();
+        try {
+            // Note we search the tree here after we have acquired the write lock...
+            SearchResult searchResult = searchTree(key);
+            Classification classification = searchResult.classification;
+
+            switch (classification) {
+            case EXACT_MATCH: {
+                // Search found an exact match for all edges leading to this node.
+                // -> Add or update the value in the node found, by replacing
+                // the existing node with a new node containing the value...
+
+                // First check if existing node has a value, and if we are allowed to overwrite it.
+                // Return early without overwriting if necessary...
+                Object existingValue = searchResult.nodeFound.getValue();
+                if (!overwrite && existingValue != null) {
+                    return existingValue;
+                }
+                // Create a replacement for the existing node containing the new value...
+                Node replacementNode = nodeFactory.createNode(searchResult.nodeFound.getIncomingEdge(), value, searchResult.nodeFound.getOutgoingEdges(), false);
+                searchResult.parentNode.updateOutgoingEdge(replacementNode);
+                // Return the existing value...
+                return existingValue;
+            }
+            case KEY_ENDS_MID_EDGE: {
+                // Search ran out of characters from the key while in the middle of an edge in the node.
+                // -> Split the node in two: Create a new parent node storing the new value,
+                // and a new child node holding the original value and edges from the existing node...
+                CharSequence keyCharsFromStartOfNodeFound = key.subSequence(searchResult.charsMatched - searchResult.charsMatchedInNodeFound, key.length());
+                CharSequence commonPrefix = CharSequences.getCommonPrefix(keyCharsFromStartOfNodeFound, searchResult.nodeFound.getIncomingEdge());
+                CharSequence suffixFromExistingEdge = CharSequences.subtractPrefix(searchResult.nodeFound.getIncomingEdge(), commonPrefix);
+
+                // Create new nodes...
+                Node newChild = nodeFactory.createNode(suffixFromExistingEdge, searchResult.nodeFound.getValue(), searchResult.nodeFound.getOutgoingEdges(), false);
+                Node newParent = nodeFactory.createNode(commonPrefix, value, Collections.singletonList(newChild), false);
+
+                // Add the new parent to the parent of the node being replaced (replacing the existing node)...
+                searchResult.parentNode.updateOutgoingEdge(newParent);
+
+                // Return null for the existing value...
+                return null;
+            }
+            case INCOMPLETE_MATCH_TO_END_OF_EDGE: {
+                // Search found a difference in characters between the key and the start of all child edges leaving the
+                // node, the key still has trailing unmatched characters.
+                // -> Add a new child to the node, containing the trailing characters from the key.
+
+                // NOTE: this is the only branch which allows an edge to be added to the root.
+                // (Root node's own edge is "" empty string, so is considered a prefixing edge of every key)
+
+                // Create a new child node containing the trailing characters...
+                // modified by neal
+                CharSequence keySuffix = key.subSequence(searchResult.charsMatched, key.length());
+                CharSequence keyPrefix = key.subSequence(0,searchResult.charsMatched);
+                Node nextNode = searchResult.nodeFound.getOutgoingEdge(WILDCARD_CHAR);
+                if(null == nextNode) {
+                    Node newChild = nodeFactory.createNode(keySuffix, value, Collections.<Node>emptyList(), false);
+                    // Clone the current node adding the new child...
+                    List<Node> edges = new ArrayList<Node>(searchResult.nodeFound.getOutgoingEdges().size() + 1);
+                    edges.addAll(searchResult.nodeFound.getOutgoingEdges());
+                    edges.add(newChild);
+                    Node clonedNode = nodeFactory.createNode(searchResult.nodeFound.getIncomingEdge(), searchResult.nodeFound.getValue(), edges, searchResult.nodeFound == root);
+                    // Re-add the cloned node to its parent node...
+                    if (searchResult.nodeFound == root) {
+                        this.root = clonedNode;
+                    }
+                    else {
+                        searchResult.parentNode.updateOutgoingEdge(clonedNode);
+                    }
+                }else{
+                        CharSequence commonPrefix = CharSequences.getCommonPrefix(nextNode.getIncomingEdge(), WILDCARD_SEPARATOR);
+                        if(!commonPrefix.isEmpty()) {
+                            for (int i = 0, len = keySuffix.length() ,loopLen = len - 1; i < loopLen; i++) {
+                                if (keySuffix.charAt(i) == PATH_SEPARATOR) {
+                                    CharSequence moreKey = CharSequences.concatenate(CharSequences.concatenate(keyPrefix,WILDCARD_SEPARATOR),keySuffix.subSequence(i+1,len));
+                                    putInternalWithWildcard(moreKey,value,false);
+                                    break;
+                                }
+                            }
+                        }
+                }
+                // Return null for the existing value...
+                return null;
+            }
+            case INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE: {
+                // Search found a difference in characters between the key and the characters in the middle of the
+                // edge in the current node, and the key still has trailing unmatched characters.
+                // -> Split the node in three:
+                // Let's call node found: NF
+                // (1) Create a new node N1 containing the unmatched characters from the rest of the key, and the
+                // value supplied to this method
+                // (2) Create a new node N2 containing the unmatched characters from the rest of the edge in NF, and
+                // copy the original edges and the value from NF unmodified into N2
+                // (3) Create a new node N3, which will be the split node, containing the matched characters from
+                // the key and the edge, and add N1 and N2 as child nodes of N3
+                // (4) Re-add N3 to the parent node of NF, effectively replacing NF in the tree
+
+
+                CharSequence keyCharsFromStartOfNodeFound = key.subSequence(searchResult.charsMatched - searchResult.charsMatchedInNodeFound, key.length());
+                CharSequence commonPrefix = CharSequences.getCommonPrefix(keyCharsFromStartOfNodeFound, searchResult.nodeFound.getIncomingEdge());
+                CharSequence suffixFromExistingEdge = CharSequences.subtractPrefix(searchResult.nodeFound.getIncomingEdge(), commonPrefix);
+                CharSequence suffixFromKey = key.subSequence(searchResult.charsMatched, key.length());
+                //create new nodes includes wildcard ==>  '*/'
+                // added by neal
+                List<Node> edges = combineWildcardNode(suffixFromExistingEdge, searchResult.nodeFound.getValue(), suffixFromKey, value);
+                @SuppressWarnings({"NullableProblems"})
+                Node n3 = nodeFactory.createNode(commonPrefix, null, edges, false);
+                searchResult.parentNode.updateOutgoingEdge(n3);
+
+
+                // Return null for the existing value...
+                return null;
+            }
+            default: {
+                // This is a safeguard against a new enum constant being added in future.
+                throw new IllegalStateException("Unexpected classification for search result: " + searchResult);
+            }
+            }
+        }
+        finally {
+            releaseWriteLock();
+        }
+    }
+
+    /**
+     * Neal  整合占位符
+     * @param suffixFromExistingEdge
+     * @param existingValue
+     * @param suffixFromKey
+     * @param addingValue
+     * @return
+     */
+    private List<Node> combineWildcardNode(CharSequence suffixFromExistingEdge, Object existingValue, CharSequence suffixFromKey, Object addingValue) {
+        List<Node> list = new ArrayList<>();
+        CharSequence existingCommonPrefix = CharSequences.getCommonPrefix(suffixFromExistingEdge, WILDCARD_SEPARATOR);  //查询现有value是否有commonPrefix
+        CharSequence suffixCommonPrefix = CharSequences.getCommonPrefix(suffixFromKey, WILDCARD_SEPARATOR);  //查询添加的value是否有commonPrefix
+        CharSequence subExistingPrefix = CharSequences.subtractPrefix(suffixFromExistingEdge, existingCommonPrefix);
+        CharSequence subSuffixFromKeyPrefix = CharSequences.subtractPrefix(suffixFromKey, suffixCommonPrefix);
+
+        int existingEdgeLen = suffixFromExistingEdge.length();
+        int fromKeyLen = suffixFromKey.length();
+        if (WILDCARD_SEPARATOR.equals(existingCommonPrefix)) {
+            for (int i = 0, loopLen = fromKeyLen - 1; i < loopLen; i++) {
+                if (suffixFromKey.charAt(i) == PATH_SEPARATOR) {
+                    list.add(nodeFactory.createNode(WILDCARD_SEPARATOR, null,
+                            combineWildcardNode(subExistingPrefix, existingValue, suffixFromKey.subSequence(i+1,fromKeyLen), addingValue), false));
+                    break;
+                }
+            }
+        }
+        else if (WILDCARD_SEPARATOR.equals(suffixCommonPrefix)) {
+            for (int i = 0, loopLen = existingEdgeLen - 1; i < loopLen; i++) {
+                if (suffixFromExistingEdge.charAt(i) == PATH_SEPARATOR) {
+                    list.add(nodeFactory.createNode(WILDCARD_SEPARATOR, null,
+                            combineWildcardNode(suffixFromExistingEdge.subSequence(i+1,existingEdgeLen), existingValue, subSuffixFromKeyPrefix, addingValue), false));
+                    break;
+                }
+            }
+        }
+        else {
+            list.addAll(nodeCommonHandle(suffixFromExistingEdge, existingValue, suffixFromKey, addingValue));
+        }
+        return list;
+    }
+
+    /**
+     * Neal 整合无占位符后的情况
+     * @param suffixFromExistingEdge
+     * @param existingValue
+     * @param suffixFromKey
+     * @param addingValue
+     * @return
+     */
+    private List<Node> nodeCommonHandle(CharSequence suffixFromExistingEdge,
+            Object existingValue, CharSequence suffixFromKey, Object addingValue) {
+        List<Node> list = new ArrayList<>();
+        if (suffixFromExistingEdge.equals(suffixFromKey)) {
+            list.add(nodeFactory.createNode(suffixFromExistingEdge, existingValue, Collections.emptyList(), false));
+        }
+        else {
+            CharSequence commonPrefix = CharSequences.getCommonPrefix(suffixFromKey, suffixFromExistingEdge);
+            if (commonPrefix.isEmpty()) {
+                if (WILDCARD_END.equals(suffixFromExistingEdge)) {
+                    list.add(nodeFactory.createNode(suffixFromExistingEdge, existingValue, Collections.emptyList(), false));
+                }
+                else if (WILDCARD_END.equals(suffixFromKey)) {
+                    list.add(nodeFactory.createNode(suffixFromKey, addingValue, Collections.emptyList(), false));
+                }
+                else {
+                    list.add(nodeFactory.createNode(suffixFromExistingEdge, existingValue, Collections.emptyList(), false));
+                    list.add(nodeFactory.createNode(suffixFromKey, addingValue, Collections.emptyList(), false));
+                }
+            }
+            else {
+                int len = commonPrefix.length();
+                if (len == suffixFromExistingEdge.length()) {
+                    CharSequence subFromKey = CharSequences.subtractPrefix(suffixFromKey, commonPrefix);
+                    Node n2 = nodeFactory.createNode(subFromKey, addingValue, Collections.emptyList(), false);
+                    Node n3 = nodeFactory.createNode(suffixFromExistingEdge, existingValue, Collections.singletonList(n2), false);
+                    list.add(n3);
+                }
+                else if (len == suffixFromKey.length()) {
+                    CharSequence subExistingKey = CharSequences.subtractPrefix(suffixFromExistingEdge, commonPrefix);
+                    Node n1 = nodeFactory.createNode(subExistingKey, existingValue, Collections.emptyList(), false);
+                    Node n3 = nodeFactory.createNode(suffixFromKey, addingValue, Collections.singletonList(n1), false);
+                    list.add(n3);
+                }
+                else {
+                    CharSequence subFromKey = CharSequences.subtractPrefix(suffixFromKey, commonPrefix);
+                    CharSequence subExistingKey = CharSequences.subtractPrefix(suffixFromExistingEdge, commonPrefix);
+                    List<Node> nodes = new ArrayList<>();
+                        if (WILDCARD_END.equals(subExistingKey)) {
+                            nodes.add(nodeFactory.createNode(subExistingKey, existingValue, Collections.emptyList(), false));
+                        }
+                        else if (WILDCARD_END.equals(subFromKey)) {
+                            nodes.add(nodeFactory.createNode(subFromKey, addingValue, Collections.emptyList(), false));
+                        }
+                        else {
+                            nodes.add(nodeFactory.createNode(subExistingKey, existingValue, Collections.emptyList(), false));
+                            nodes.add(nodeFactory.createNode(subFromKey, addingValue, Collections.emptyList(), false));
+                        }
+                        Node n3 = nodeFactory.createNode(commonPrefix, null, nodes, false);
+                        list.add(n3);
+                }
+            }
+        }
+        return list;
+    }
+
+//    private List<Node> wildcardCommonHandle(CharSequence commonPrefix, CharSequence suffixFromExistingEdge,
+//            Object existingValue, CharSequence suffixFromKey, Object addingValue) {
+//        List<Node> list = new ArrayList<>();
+//        CharSequence subExistingPrefix = CharSequences.subtractPrefix(suffixFromExistingEdge, commonPrefix);
+//        for (int i = 0, len = suffixFromKey.length(); i < len; i++) {
+//            if (suffixFromKey.charAt(i) == PATH_SEPARATOR) {
+//                list.add(nodeFactory.createNode(commonPrefix, null,
+//                        combineWildcardNode(subExistingPrefix, existingValue, CharSequences.subtractPrefix(suffixFromKey, commonPrefix), addingValue), false));
+//                break;
+//            }
+//        }
+//        return list;
+//    }
 
     // ------------- Helper method for finding descendants of a given node -------------
 
