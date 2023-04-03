@@ -94,16 +94,6 @@ public class CharSequences {
         return first.subSequence(0, minLength);
     }
 
-    public static CharSequence getCommonPrefix(CharSequence first, CharSequence second,int endIndex) {
-        int minLength = Math.min(first.length(), second.length());
-        for (int i = 0; i < minLength; i++) {
-            if (first.charAt(i) != second.charAt(i) && i == endIndex) {
-                return first.subSequence(0, i);
-            }
-        }
-        return first.subSequence(0, minLength);
-    }
-
     public static CharSequence getSuffix(CharSequence input, int startIndex) {
         if (startIndex >= input.length()) {
             return "";

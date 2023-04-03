@@ -42,17 +42,17 @@ public interface RadixTree<O> {
      */
     O put(CharSequence key, O value);
 
-    /**
-     * Associates the given value with the given key; replacing any previous value associated with the key.
-     * Returns the previous value associated with the key, if any.
-     * <p/>
-     * This operation is performed atomically.
-     *
-     * @param key The key with which the specified value should be associated
-     * @param value The value to associate with the key, which cannot be null
-     * @return The previous value associated with the key, if there was one, otherwise null
-     */
-    O putWildcard(CharSequence key, O value);
+//    /**
+//     * Associates the given value with the given key; replacing any previous value associated with the key.
+//     * Returns the previous value associated with the key, if any.
+//     * <p/>
+//     * This operation is performed atomically.
+//     *
+//     * @param key The key with which the specified value should be associated
+//     * @param value The value to associate with the key, which cannot be null
+//     * @return The previous value associated with the key, if there was one, otherwise null
+//     */
+//    O putWildcard(CharSequence key, O value);
 
     /**
      * If a value is not already associated with the given key in the tree, associates the given value with the
