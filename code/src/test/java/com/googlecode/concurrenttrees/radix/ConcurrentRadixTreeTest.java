@@ -18,6 +18,7 @@ package com.googlecode.concurrenttrees.radix;
 import java.util.Arrays;
 import java.util.Collections;
 
+import com.googlecode.concurrenttrees.common.CharSequences;
 import com.googlecode.concurrenttrees.common.Iterables;
 import com.googlecode.concurrenttrees.common.KeyValuePair;
 import com.googlecode.concurrenttrees.common.PrettyPrinter;
@@ -987,33 +988,19 @@ public class ConcurrentRadixTreeTest {
     @Test
     public void testWildcard() {
         ConcurrentRadixTree<Integer> tree = new ConcurrentRadixTree<Integer>(getNodeFactory());
-//        tree.put("/api/v1/*/c", 1);
-//        tree.put("/api/v1/b/*/d", 2);
-//        tree.put("/api/v1/*/c", 3);
-
-        tree.put("/api/full/v1000/**", 4);
-        tree.put("/api/v1/a/*/test",5 );
-//        tree.putWildcard("/api/v1/b/e/d",6 );
-//        tree.putWildcard("/api/v1/*/c/*/f", 6);
-
-//        tree.put("/api/v1/b/*/d/*/g", 6);
-        // tree.put("/api/v1/b/c", 3);
-
-        //    ○
-        //    └── ○ FOO (1)
-        //        ├── ○ BAR (2)
-        //        └── ○ D (3)
-
-        String actual;
-//        expected =
-//                "○\n" +
-//                "└── ○ FOO (1)\n" +
-//                "    ├── ○ BAR (2)\n" +
-//                "    └── ○ D (3)\n";
-        actual = PrettyPrinter.prettyPrint(tree);
-        System.out.println(actual);
-        System.out.println(tree.getValueForWildcardKey("/api/full/v1000/test"));
-//        assertEquals(Integer.valueOf(4), tree.getValueForWildcardKey("/api/full/v1000/test"));
-//        assertEquals(Integer.valueOf(5), tree.getValueForWildcardKey("/api/v1/b/c/d"));
+        tree.put("/api/full/v1000/*", 4);
+        tree.put("/api/full/v2000/**", 5);
+        tree.put("/api/v1/a/*/test", 6);
+// ○
+//└── ○ /api/
+//    ├── ○ full/v
+//    │   ├── ○ 1000/* (4)
+//    │   └── ○ 2000/** (5)
+//    └── ○ v1/a/*/test (6)
+//        String actual = PrettyPrinter.prettyPrint(tree);
+//        System.out.println(actual);
+        assertEquals(null, tree.getValueForWildcardKey("/api/full/v1000/test"));
+        assertEquals(Integer.valueOf(5), tree.getValueForWildcardKey("/api/full/v2000/a/d/sdasd"));
+        assertEquals(Integer.valueOf(6), tree.getValueForWildcardKey("/api/v1/a/opop/test"));
     }
 }

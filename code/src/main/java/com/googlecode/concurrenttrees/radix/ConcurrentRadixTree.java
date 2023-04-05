@@ -169,29 +169,32 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
             currentNode = nextNode;
             charsMatchedInNodeFound = 0;
             CharSequence currentNodeEdgeCharacters = currentNode.getIncomingEdge();
-            if(CharSequence.compare(currentNodeEdgeCharacters,WILDCARD_END) == 0){
-                charsMatched = keyLength;
-                charsMatchedInNodeFound = 2;
-                break;
-            }
             for (int i = 0, numEdgeChars = currentNodeEdgeCharacters.length(); i < numEdgeChars && charsMatched < keyLength; i++) {
                 if (currentNodeEdgeCharacters.charAt(i) != key.charAt(charsMatched)) {
                     // Found a difference in chars between character in key and a character in current node.
                     // Current node is the deepest match (inexact match)....
-                    if (currentNodeEdgeCharacters.charAt(i) == WILDCARD_CHAR) {
-                        int wildcardCharMatched = charsMatched;
-                        char currentChar = currentNodeEdgeCharacters.charAt(i + 1);
-                        while (wildcardCharMatched < keyLength) {
-                            if (key.charAt(wildcardCharMatched) != currentChar) {
-                                wildcardCharMatched++;
-                                continue;
+                    if (currentNodeEdgeCharacters.charAt(i++) == WILDCARD_CHAR) {  // 获取当前i的值, 并且i+1
+                        if(i < numEdgeChars) {
+                            char currentChar = currentNodeEdgeCharacters.charAt(i);
+                            if(currentChar == WILDCARD_CHAR) {
+                                charsMatched = keyLength;
+                                charsMatchedInNodeFound = numEdgeChars;
+                            }else{
+                                int wildcardCharMatched = charsMatched;
+                                while (wildcardCharMatched < keyLength) {
+                                    if (key.charAt(wildcardCharMatched) != currentChar) {
+                                        wildcardCharMatched++;
+                                        continue;
+                                    }
+                                    break;
+                                }
+                                if (wildcardCharMatched != charsMatched) {
+                                    charsMatched = wildcardCharMatched;
+                                    charsMatchedInNodeFound++;
+                                    --i;
+                                    continue;
+                                }
                             }
-                            break;
-                        }
-                        if (wildcardCharMatched != charsMatched) {
-                            charsMatched = wildcardCharMatched;
-                            charsMatchedInNodeFound++;
-                            continue;
                         }
                     }
                     break outer_loop;
