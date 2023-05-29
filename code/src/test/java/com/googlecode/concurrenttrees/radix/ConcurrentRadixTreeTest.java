@@ -988,9 +988,9 @@ public class ConcurrentRadixTreeTest {
     @Test
     public void testWildcard() {
         ConcurrentRadixTree<Integer> tree = new ConcurrentRadixTree<Integer>(getNodeFactory());
-        tree.put("/api/full/v1000/*", 4);
-        tree.put("/api/full/v2000/**", 5);
-        tree.put("/api/v1/a/*/test", 6);
+        tree.putWildcard("/api/full/v1000/*", 4);
+        tree.putWildcard("/api/full/v2000/**", 5);
+        tree.putWildcard("/api/v1/a/*/test", 6);
 // ○
 //└── ○ /api/
 //    ├── ○ full/v

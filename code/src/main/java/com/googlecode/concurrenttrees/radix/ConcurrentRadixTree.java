@@ -106,12 +106,12 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
      * @param value The value to associate with the key, which cannot be null
      * @return
      */
-//    @Override
-//    public O putWildcard(CharSequence key, O value) {
-//        @SuppressWarnings({"unchecked", "UnnecessaryLocalVariable"})
-//        O existingValue = (O) putInternalWithWildcard(key, value, true);  // putInternal acquires write lock
-//        return existingValue;
-//    }
+    @Override
+    public O putWildcard(CharSequence key, O value) {
+        @SuppressWarnings({"unchecked", "UnnecessaryLocalVariable"})
+        O existingValue = (O) putInternalWithWildcard(key, value, false);  // putInternal acquires write lock
+        return existingValue;
+    }
 
     /**
      * {@inheritDoc}
@@ -157,9 +157,9 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
         final int keyLength = key.length();
         outer_loop:
         while (charsMatched < keyLength) {
-            Node nextNode = currentNode.getOutgoingEdge(WILDCARD_CHAR);
+            Node nextNode = currentNode.getOutgoingEdge(WILDCARD_CHAR);          //首先寻找当前节点是否有通配符
             if (nextNode == null) {
-                nextNode = currentNode.getOutgoingEdge(key.charAt(charsMatched));
+                nextNode = currentNode.getOutgoingEdge(key.charAt(charsMatched));  //如果没有则查找字符
                 if (nextNode == null) {
                     break;
                 }
@@ -173,25 +173,25 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
                 if (currentNodeEdgeCharacters.charAt(i) != key.charAt(charsMatched)) {
                     // Found a difference in chars between character in key and a character in current node.
                     // Current node is the deepest match (inexact match)....
-                    if (currentNodeEdgeCharacters.charAt(i++) == WILDCARD_CHAR) {  // 获取当前i的值, 并且i+1
+                    if (currentNodeEdgeCharacters.charAt(i++) == WILDCARD_CHAR) {  // 获取当前i的值, 并且i+1   比如当前节点T*T,  当前i = 1,
                         if(i < numEdgeChars) {
                             char currentChar = currentNodeEdgeCharacters.charAt(i);
-                            if(currentChar == WILDCARD_CHAR) {
+                            if(currentChar == WILDCARD_CHAR) {                        //如果节点是 ** 结尾,则通配符为全匹配,无论当前path 后面有多少字符串，都默认为完全匹配(比如 TEST 节点为 TE** )
                                 charsMatched = keyLength;
                                 charsMatchedInNodeFound = numEdgeChars;
-                            }else{
+                            }else{                                                       //判断下一个节点的匹配字符 比如 查询字符串TEST , 当前节点为 T*T
                                 int wildcardCharMatched = charsMatched;
                                 while (wildcardCharMatched < keyLength) {
-                                    if (key.charAt(wildcardCharMatched) != currentChar) {
-                                        wildcardCharMatched++;
+                                    if (key.charAt(wildcardCharMatched) != currentChar) {   //这里就是将当前节点 T*T 的第三个字符T,拿出来 接着与 TEST进行对比
+                                        wildcardCharMatched++;                               // 如果没匹配上，则证明仍在通配符范围内
                                         continue;
                                     }
                                     break;
                                 }
-                                if (wildcardCharMatched != charsMatched) {
+                                if (wildcardCharMatched != charsMatched) {             //重置 将通配符的匹配序列 赋值给 charsMatched
                                     charsMatched = wildcardCharMatched;
                                     charsMatchedInNodeFound++;
-                                    --i;
+                                    --i;                                               //返回到之前的寻址地址， 比如T*T => i = 1 继续外部循环
                                     continue;
                                 }
                             }
@@ -539,127 +539,127 @@ public class ConcurrentRadixTree<O> implements RadixTree<O>, PrettyPrintable, Se
      * @param overwrite If true, should replace any existing value, if false should not replace any existing value
      * @return The existing value for this key, if there was one, otherwise null
      */
-//    Object putInternal(CharSequence key, Object value, boolean overwrite) {
-//        if (key == null) {
-//            throw new IllegalArgumentException("The key argument was null");
-//        }
-//        if (key.length() == 0) {
-//            throw new IllegalArgumentException("The key argument was zero-length");
-//        }
-//        if (value == null) {
-//            throw new IllegalArgumentException("The value argument was null");
-//        }
-//        acquireWriteLock();
-//        try {
-//            // Note we search the tree here after we have acquired the write lock...
-//            SearchResult searchResult = searchTree(key);
-//            Classification classification = searchResult.classification;
-//
-//            switch (classification) {
-//                case EXACT_MATCH: {
-//                    // Search found an exact match for all edges leading to this node.
-//                    // -> Add or update the value in the node found, by replacing
-//                    // the existing node with a new node containing the value...
-//
-//                    // First check if existing node has a value, and if we are allowed to overwrite it.
-//                    // Return early without overwriting if necessary...
-//                    Object existingValue = searchResult.nodeFound.getValue();
-//                    if (!overwrite && existingValue != null) {
-//                        return existingValue;
-//                    }
-//                    // Create a replacement for the existing node containing the new value...
-//                    Node replacementNode = nodeFactory.createNode(searchResult.nodeFound.getIncomingEdge(), value, searchResult.nodeFound.getOutgoingEdges(), false);
-//                    searchResult.parentNode.updateOutgoingEdge(replacementNode);
-//                    // Return the existing value...
-//                    return existingValue;
-//                }
-//                case KEY_ENDS_MID_EDGE: {
-//                    // Search ran out of characters from the key while in the middle of an edge in the node.
-//                    // -> Split the node in two: Create a new parent node storing the new value,
-//                    // and a new child node holding the original value and edges from the existing node...
-//                    CharSequence keyCharsFromStartOfNodeFound = key.subSequence(searchResult.charsMatched - searchResult.charsMatchedInNodeFound, key.length());
-//                    CharSequence commonPrefix = CharSequences.getCommonPrefix(keyCharsFromStartOfNodeFound, searchResult.nodeFound.getIncomingEdge());
-//                    CharSequence suffixFromExistingEdge = CharSequences.subtractPrefix(searchResult.nodeFound.getIncomingEdge(), commonPrefix);
-//
-//                    // Create new nodes...
-//                    Node newChild = nodeFactory.createNode(suffixFromExistingEdge, searchResult.nodeFound.getValue(), searchResult.nodeFound.getOutgoingEdges(), false);
-//                    Node newParent = nodeFactory.createNode(commonPrefix, value, Arrays.asList(newChild), false);
-//
-//                    // Add the new parent to the parent of the node being replaced (replacing the existing node)...
-//                    searchResult.parentNode.updateOutgoingEdge(newParent);
-//
-//                    // Return null for the existing value...
-//                    return null;
-//                }
-//                case INCOMPLETE_MATCH_TO_END_OF_EDGE: {
-//                    // Search found a difference in characters between the key and the start of all child edges leaving the
-//                    // node, the key still has trailing unmatched characters.
-//                    // -> Add a new child to the node, containing the trailing characters from the key.
-//
-//                    // NOTE: this is the only branch which allows an edge to be added to the root.
-//                    // (Root node's own edge is "" empty string, so is considered a prefixing edge of every key)
-//
-//                    // Create a new child node containing the trailing characters...
-//                    CharSequence keySuffix = key.subSequence(searchResult.charsMatched, key.length());
-//                    Node newChild = nodeFactory.createNode(keySuffix, value, Collections.<Node>emptyList(), false);
-//
-//                    // Clone the current node adding the new child...
-//                    List<Node> edges = new ArrayList<Node>(searchResult.nodeFound.getOutgoingEdges().size() + 1);
-//                    edges.addAll(searchResult.nodeFound.getOutgoingEdges());
-//                    edges.add(newChild);
-//                    Node clonedNode = nodeFactory.createNode(searchResult.nodeFound.getIncomingEdge(), searchResult.nodeFound.getValue(), edges, searchResult.nodeFound == root);
-//
-//                    // Re-add the cloned node to its parent node...
-//                    if (searchResult.nodeFound == root) {
-//                        this.root = clonedNode;
-//                    }
-//                    else {
-//                        searchResult.parentNode.updateOutgoingEdge(clonedNode);
-//                    }
-//
-//                    // Return null for the existing value...
-//                    return null;
-//                }
-//                case INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE: {
-//                    // Search found a difference in characters between the key and the characters in the middle of the
-//                    // edge in the current node, and the key still has trailing unmatched characters.
-//                    // -> Split the node in three:
-//                    // Let's call node found: NF
-//                    // (1) Create a new node N1 containing the unmatched characters from the rest of the key, and the
-//                    // value supplied to this method
-//                    // (2) Create a new node N2 containing the unmatched characters from the rest of the edge in NF, and
-//                    // copy the original edges and the value from NF unmodified into N2
-//                    // (3) Create a new node N3, which will be the split node, containing the matched characters from
-//                    // the key and the edge, and add N1 and N2 as child nodes of N3
-//                    // (4) Re-add N3 to the parent node of NF, effectively replacing NF in the tree
-//
-//                    CharSequence keyCharsFromStartOfNodeFound = key.subSequence(searchResult.charsMatched - searchResult.charsMatchedInNodeFound, key.length());
-//                    CharSequence commonPrefix = CharSequences.getCommonPrefix(keyCharsFromStartOfNodeFound, searchResult.nodeFound.getIncomingEdge());
-//                    CharSequence suffixFromExistingEdge = CharSequences.subtractPrefix(searchResult.nodeFound.getIncomingEdge(), commonPrefix);
-//                    CharSequence suffixFromKey = key.subSequence(searchResult.charsMatched, key.length());
-//                    // Create new nodes...
-//                    Node n1 = nodeFactory.createNode(suffixFromKey, value, Collections.<Node>emptyList(), false);
-//                    Node n2 = nodeFactory.createNode(suffixFromExistingEdge, searchResult.nodeFound.getValue(), searchResult.nodeFound.getOutgoingEdges(), false);
-//                    @SuppressWarnings({"NullableProblems"})
-//                    Node n3 = nodeFactory.createNode(commonPrefix, null, Arrays.asList(n1, n2), false);
-//                    searchResult.parentNode.updateOutgoingEdge(n3);
-//
-//                    // Return null for the existing value...
-//                    return null;
-//                }
-//                default: {
-//                    // This is a safeguard against a new enum constant being added in future.
-//                    throw new IllegalStateException("Unexpected classification for search result: " + searchResult);
-//                }
-//            }
-//        }
-//        finally {
-//            releaseWriteLock();
-//        }
-//    }
-
-
     Object putInternal(CharSequence key, Object value, boolean overwrite) {
+        if (key == null) {
+            throw new IllegalArgumentException("The key argument was null");
+        }
+        if (key.length() == 0) {
+            throw new IllegalArgumentException("The key argument was zero-length");
+        }
+        if (value == null) {
+            throw new IllegalArgumentException("The value argument was null");
+        }
+        acquireWriteLock();
+        try {
+            // Note we search the tree here after we have acquired the write lock...
+            SearchResult searchResult = searchTree(key);
+            Classification classification = searchResult.classification;
+
+            switch (classification) {
+                case EXACT_MATCH: {
+                    // Search found an exact match for all edges leading to this node.
+                    // -> Add or update the value in the node found, by replacing
+                    // the existing node with a new node containing the value...
+
+                    // First check if existing node has a value, and if we are allowed to overwrite it.
+                    // Return early without overwriting if necessary...
+                    Object existingValue = searchResult.nodeFound.getValue();
+                    if (!overwrite && existingValue != null) {
+                        return existingValue;
+                    }
+                    // Create a replacement for the existing node containing the new value...
+                    Node replacementNode = nodeFactory.createNode(searchResult.nodeFound.getIncomingEdge(), value, searchResult.nodeFound.getOutgoingEdges(), false);
+                    searchResult.parentNode.updateOutgoingEdge(replacementNode);
+                    // Return the existing value...
+                    return existingValue;
+                }
+                case KEY_ENDS_MID_EDGE: {
+                    // Search ran out of characters from the key while in the middle of an edge in the node.
+                    // -> Split the node in two: Create a new parent node storing the new value,
+                    // and a new child node holding the original value and edges from the existing node...
+                    CharSequence keyCharsFromStartOfNodeFound = key.subSequence(searchResult.charsMatched - searchResult.charsMatchedInNodeFound, key.length());
+                    CharSequence commonPrefix = CharSequences.getCommonPrefix(keyCharsFromStartOfNodeFound, searchResult.nodeFound.getIncomingEdge());
+                    CharSequence suffixFromExistingEdge = CharSequences.subtractPrefix(searchResult.nodeFound.getIncomingEdge(), commonPrefix);
+
+                    // Create new nodes...
+                    Node newChild = nodeFactory.createNode(suffixFromExistingEdge, searchResult.nodeFound.getValue(), searchResult.nodeFound.getOutgoingEdges(), false);
+                    Node newParent = nodeFactory.createNode(commonPrefix, value, Arrays.asList(newChild), false);
+
+                    // Add the new parent to the parent of the node being replaced (replacing the existing node)...
+                    searchResult.parentNode.updateOutgoingEdge(newParent);
+
+                    // Return null for the existing value...
+                    return null;
+                }
+                case INCOMPLETE_MATCH_TO_END_OF_EDGE: {
+                    // Search found a difference in characters between the key and the start of all child edges leaving the
+                    // node, the key still has trailing unmatched characters.
+                    // -> Add a new child to the node, containing the trailing characters from the key.
+
+                    // NOTE: this is the only branch which allows an edge to be added to the root.
+                    // (Root node's own edge is "" empty string, so is considered a prefixing edge of every key)
+
+                    // Create a new child node containing the trailing characters...
+                    CharSequence keySuffix = key.subSequence(searchResult.charsMatched, key.length());
+                    Node newChild = nodeFactory.createNode(keySuffix, value, Collections.<Node>emptyList(), false);
+
+                    // Clone the current node adding the new child...
+                    List<Node> edges = new ArrayList<Node>(searchResult.nodeFound.getOutgoingEdges().size() + 1);
+                    edges.addAll(searchResult.nodeFound.getOutgoingEdges());
+                    edges.add(newChild);
+                    Node clonedNode = nodeFactory.createNode(searchResult.nodeFound.getIncomingEdge(), searchResult.nodeFound.getValue(), edges, searchResult.nodeFound == root);
+
+                    // Re-add the cloned node to its parent node...
+                    if (searchResult.nodeFound == root) {
+                        this.root = clonedNode;
+                    }
+                    else {
+                        searchResult.parentNode.updateOutgoingEdge(clonedNode);
+                    }
+
+                    // Return null for the existing value...
+                    return null;
+                }
+                case INCOMPLETE_MATCH_TO_MIDDLE_OF_EDGE: {
+                    // Search found a difference in characters between the key and the characters in the middle of the
+                    // edge in the current node, and the key still has trailing unmatched characters.
+                    // -> Split the node in three:
+                    // Let's call node found: NF
+                    // (1) Create a new node N1 containing the unmatched characters from the rest of the key, and the
+                    // value supplied to this method
+                    // (2) Create a new node N2 containing the unmatched characters from the rest of the edge in NF, and
+                    // copy the original edges and the value from NF unmodified into N2
+                    // (3) Create a new node N3, which will be the split node, containing the matched characters from
+                    // the key and the edge, and add N1 and N2 as child nodes of N3
+                    // (4) Re-add N3 to the parent node of NF, effectively replacing NF in the tree
+
+                    CharSequence keyCharsFromStartOfNodeFound = key.subSequence(searchResult.charsMatched - searchResult.charsMatchedInNodeFound, key.length());
+                    CharSequence commonPrefix = CharSequences.getCommonPrefix(keyCharsFromStartOfNodeFound, searchResult.nodeFound.getIncomingEdge());
+                    CharSequence suffixFromExistingEdge = CharSequences.subtractPrefix(searchResult.nodeFound.getIncomingEdge(), commonPrefix);
+                    CharSequence suffixFromKey = key.subSequence(searchResult.charsMatched, key.length());
+                    // Create new nodes...
+                    Node n1 = nodeFactory.createNode(suffixFromKey, value, Collections.<Node>emptyList(), false);
+                    Node n2 = nodeFactory.createNode(suffixFromExistingEdge, searchResult.nodeFound.getValue(), searchResult.nodeFound.getOutgoingEdges(), false);
+                    @SuppressWarnings({"NullableProblems"})
+                    Node n3 = nodeFactory.createNode(commonPrefix, null, Arrays.asList(n1, n2), false);
+                    searchResult.parentNode.updateOutgoingEdge(n3);
+
+                    // Return null for the existing value...
+                    return null;
+                }
+                default: {
+                    // This is a safeguard against a new enum constant being added in future.
+                    throw new IllegalStateException("Unexpected classification for search result: " + searchResult);
+                }
+            }
+        }
+        finally {
+            releaseWriteLock();
+        }
+    }
+
+
+    Object putInternalWithWildcard(CharSequence key, Object value, boolean overwrite) {
         if (key == null) {
             throw new IllegalArgumentException("The key argument was null");
         }
